@@ -1,0 +1,96 @@
+﻿using System.ComponentModel;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+
+namespace KeyboardHookLab.Interop;
+
+public sealed class KeyboardHook : IDisposable
+{
+    private const int WH_KEYBOARD_LL = 13;
+    private const int WM_KEYDOWN = 0x0100;
+    private const int WM_SYSKEYDOWN = 0x0104;
+    private readonly LowLevelKeyboardProc _callback;
+    private IntPtr _hookHandle = IntPtr.Zero;
+
+    public event Action<Keys>? KeyPressed;
+    public bool IsInstalled => _hookHandle != IntPtr.Zero;
+
+    public KeyboardHook()
+    {
+        _callback = HookCallback;
+    }
+
+    public void Start()
+    {
+        if (IsInstalled) return;
+
+        _hookHandle = SetWindowsHookEx(WH_KEYBOARD_LL, _callback, IntPtr.Zero, 0);
+
+        if (_hookHandle == IntPtr.Zero)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Не удалось установить hook.");
+        }
+    }
+
+    public void Stop()
+    {
+        if (!IsInstalled) return;
+
+        if (!UnhookWindowsHookEx(_hookHandle))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Не удалось снять hook.");
+        }
+        _hookHandle = IntPtr.Zero;
+    }
+
+    private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0 && (wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN))
+        {
+            try
+            {
+                var info = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+                GetWindowThreadProcessId(GetForegroundWindow(), out uint pid);
+                if (pid == (uint)Environment.ProcessId)
+                {
+                    KeyPressed?.Invoke((Keys)info.vkCode);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Ошибка callback: {ex}");
+            }
+        }
+        return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
+    }
+
+    public void Dispose() => Stop();
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KBDLLHOOKSTRUCT
+    {
+        public uint vkCode;
+        public uint scanCode;
+        public uint flags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
+
+    [DllImport("user32.dll", SetLastError = true, CallingConvention = CallingConvention.Winapi)]
+    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll", SetLastError = true, CallingConvention = CallingConvention.Winapi)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [DllImport("user32.dll", CallingConvention = CallingConvention.Winapi)]
+    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", CallingConvention = CallingConvention.Winapi)]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", CallingConvention = CallingConvention.Winapi)]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+}
