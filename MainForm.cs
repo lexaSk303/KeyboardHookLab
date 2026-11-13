@@ -1,6 +1,4 @@
 ﻿namespace KeyboardHookLab;
-
-// На первом этапе создадим окно с журналом клавиатурных событий.
 public sealed class MainForm : Form
 {
     private readonly TextBox _logTextBox;
@@ -11,8 +9,6 @@ public sealed class MainForm : Form
         Width = 700;
         Height = 450;
         StartPosition = FormStartPosition.CenterScreen;
-
-        // Форма получает события клавиатуры раньше дочерних элементов.
         KeyPreview = true;
 
         _logTextBox = new TextBox
